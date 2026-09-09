@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible problem with Link Float.
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions and platform
+      description: Include Link Float version, Obsidian version, installer version, and operating system.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include Reading view or Live Preview, the modifier used, and a public or synthetic example link. Do not include credentials, private URLs, or private vault content.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

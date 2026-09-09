@@ -1,0 +1,7 @@
+node_modules/
+.lab/
+dist/
+main.js
+*.tsbuildinfo
+test-results/
+.DS_Store

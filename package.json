@@ -1,0 +1,50 @@
+{
+  "name": "obsidian-link-float",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open web links in a temporary overlay with modifier-click.",
+  "scripts": {
+    "build": "npm run typecheck && node esbuild.config.mjs",
+    "check": "npm run lint && npm test && npm run build",
+    "test": "tsx --test tests/*.test.ts",
+    "lab:prepare": "npm run build && node scripts/prepare-lab.mjs",
+    "lab:test": "node scripts/runtime-test.mjs",
+    "lab:test-ui": "node scripts/rail-test.mjs",
+    "lab:test-lifecycle": "node scripts/lifecycle-test.mjs",
+    "lab:test-recovery": "node scripts/recovery-test.mjs",
+    "lab:test-session": "node scripts/session-feature-test.mjs",
+    "lab:fixture": "node scripts/fixture.mjs",
+    "lab:fixture-session": "node scripts/fixture-session.mjs",
+    "lab:test-motion": "node scripts/motion-test.mjs",
+    "lab:test-frame": "node scripts/frame-test.mjs",
+    "lab:measure-motion": "node scripts/measure-motion.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src manifest.json LICENSE --max-warnings=0",
+    "package": "npm run check && node scripts/package.mjs",
+    "release:notes": "node scripts/release-notes.mjs"
+  },
+  "devDependencies": {
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
+    "@types/node": "22.20.1",
+    "esbuild": "0.28.2",
+    "obsidian": "1.13.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "@eslint/js": "9.39.5",
+    "@eslint/json": "0.14.0",
+    "eslint": "10.10.0",
+    "eslint-plugin-obsidianmd": "0.4.2",
+    "globals": "17.12.0",
+    "typescript-eslint": "8.70.0"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "overrides": {
+    "eslint-plugin-obsidianmd": {
+      "obsidian": "$obsidian"
+    }
+  }
+}

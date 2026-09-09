@@ -1,0 +1,57 @@
+name: Prepare draft release
+
+on:
+  push:
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run package
+      - name: Validate tag and extract changelog
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node scripts/release-notes.mjs "$RELEASE_VERSION" > dist/release-notes.md
+      - name: Attest plugin asset provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          create-storage-record: false
+          subject-path: |
+            dist/link-float/main.js
+            dist/link-float/manifest.json
+            dist/link-float/styles.css
+      - name: Create draft with individual plugin assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            --verify-tag \
+            --draft \
+            --title "$RELEASE_VERSION" \
+            --notes-file dist/release-notes.md \
+            dist/link-float/main.js \
+            dist/link-float/manifest.json \
+            dist/link-float/styles.css
