@@ -6,7 +6,7 @@
 - Preview a selection before saving, cancel it, or use Hidden elements → Show again to restore an element across matching open tabs.
 - Open previews from links in ordinary Web viewer tabs with the configured modifier while preserving the source page’s form state, history, and scroll position.
 
-Requires Obsidian 1.13.7 or later on desktop with Web viewer enabled. Element selection covers the top document; iframe contents and Shadow DOM internals are not traversed.
+Requires Obsidian 1.13.7 or later on desktop with Web viewer enabled. The picker selects elements in the main page. Embedded frames and web components can be hidden as a whole, but their internal elements cannot be selected.
 
 ## [0.1.1] - 2026-09-10
 
