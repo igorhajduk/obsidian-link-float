@@ -137,3 +137,34 @@ export function closePageSearch(leaf: WorkspaceLeaf): boolean {
   view.closeSearch();
   return true;
 }
+
+interface PageContents extends GuestContents {
+  executeJavaScriptInIsolatedWorld<T>(worldId: number, scripts: { code: string }[]): Promise<T>;
+  insertCSS(css: string, options: { cssOrigin: 'user' }): Promise<string>;
+  removeInsertedCSS(key: string): Promise<void>;
+  on(event: string, listener: (...args: unknown[]) => void): void;
+}
+
+/** The bridge is private; fail at this boundary when required methods disappear. */
+export function pageBridge(guest: Guest): {
+  run: <T = unknown>(code: string) => Promise<T>;
+  style: (css: string) => Promise<string>;
+  unstyle: (key: string) => Promise<void>;
+  messages: (receive: (message: string) => void) => () => void;
+} | null {
+  const wc = contentsFor(guest) as PageContents | null;
+  if (!wc || ['executeJavaScriptInIsolatedWorld', 'insertCSS', 'removeInsertedCSS', 'on'].some(name => typeof Reflect.get(wc, name) !== 'function')) return null;
+  return {
+    run: <T>(code: string) => wc.executeJavaScriptInIsolatedWorld<T>(18364, [{ code }]),
+    style: css => wc.insertCSS(css, { cssOrigin: 'user' }),
+    unstyle: key => wc.removeInsertedCSS(key),
+    messages(receive) {
+      const listener = (...args: unknown[]) => {
+        // Electron 43's bridge uses the legacy event, level, message signature.
+        if (typeof args[2] === 'string') receive(args[2]);
+      };
+      wc.on('console-message', listener);
+      return () => { try { if (!wc.isDestroyed()) wc.removeListener('console-message', listener); } catch { /* Destroyed guest. */ } };
+    },
+  };
+}

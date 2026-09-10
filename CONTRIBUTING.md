@@ -15,13 +15,13 @@ Dependencies are pinned in `package-lock.json`. The scoped override for `eslint-
 | --- | --- |
 | `npm run typecheck` | Check TypeScript without emitting files. |
 | `npm run lint` | Run the official Obsidian ESLint configuration with zero warnings allowed. |
-| `npm test` | Run focused tests for links, layout filtering, and saved positions. |
+| `npm test` | Run focused tests for links, layout filtering, saved positions, and serialized settings/rule storage. |
 | `npm run build` | Typecheck and build the production plugin. |
 | `npm run check` | Run lint, tests, typecheck, and build. |
 | `npm run package` | Run checks and write `dist/link-float` and SHA-256 checksums. |
-| `npm run release:notes -- 0.1.0` | Validate release metadata and extract the matching changelog section. |
+| `npm run release:notes -- 0.2.0` | Validate release metadata and extract the matching changelog section. |
 
-`src/` contains the plugin, `tests/` contains unit tests, and `scripts/` contains build and local integration tools. The build externalizes Obsidian and CodeMirror and does not include the test harness, fixtures, or developer tools. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
+`src/` contains the plugin, `tests/` contains unit tests, and `scripts/` contains build and local integration tools. The build externalizes Obsidian and CodeMirror and does not include the test harness, fixtures, or developer tools. The guest helper is built separately as an isolated-world script, including the pinned CSS Selector Generator dependency and its license notice. Two Obsidian DOM/style lint rules are scoped off for that helper because it runs in a website without Obsidian DOM extensions. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
 
 ## Changes
 

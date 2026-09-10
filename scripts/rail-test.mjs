@@ -36,7 +36,7 @@ function assertGeometry(g) {
   assert.ok(Math.abs(g.frame.top - (g.viewport.height - g.frame.bottom)) < 1, 'Vertical margins are balanced');
   assert.ok(g.frame.top <= Math.max(10, g.viewport.height * 0.012) + 1, 'Page reaches near the window edges vertically');
   if (g.workspace.width > 600) assert.ok(Math.abs(g.frame.width / g.workspace.width - 0.8) < 0.01, 'Page occupies about 80 percent of the available workspace');
-  assert.equal(g.buttons.length, 3);
+  assert.equal(g.buttons.length, 4);
   for (const b of g.buttons) {
     assert.ok(b.rect.left > g.frame.right, `${b.label} is outside the page`);
     assert.ok(b.rect.right <= g.viewport.width, `${b.label} fits the viewport`);
@@ -53,7 +53,7 @@ try {
   await job(`window.railSource=app.workspace.getLeavesOfType('markdown')[0];app.workspace.setActiveLeaf(railSource);electron.remote.getCurrentWindow().show();electron.remote.getCurrentWindow().focus();return true;`);
   await open();
   const normal = await geometry(); assertGeometry(normal);
-  check('Webpage fills the frame; three external round controls are visible and hit-testable', { viewport: normal.viewport });
+  check('Webpage fills the frame; four external round controls are visible and hit-testable', { viewport: normal.viewport });
   const identity = await value(`${guest}.getWebContentsId()`);
   await click(options);
   assert.equal(await value("!!document.querySelector('.peek-menu')"), true);

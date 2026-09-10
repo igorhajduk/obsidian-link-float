@@ -1,6 +1,6 @@
 {
   "name": "obsidian-link-float",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Open web links in a temporary overlay with modifier-click.",
   "scripts": {
@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src manifest.json LICENSE --max-warnings=0",
     "package": "npm run check && node scripts/package.mjs",
-    "release:notes": "node scripts/release-notes.mjs"
+    "release:notes": "node scripts/release-notes.mjs",
+    "lab:test-hiding": "node scripts/hiding-test.mjs"
   },
   "devDependencies": {
     "@codemirror/state": "6.5.0",
@@ -46,5 +47,8 @@
     "eslint-plugin-obsidianmd": {
       "obsidian": "$obsidian"
     }
+  },
+  "dependencies": {
+    "css-selector-generator": "3.9.4"
   }
 }

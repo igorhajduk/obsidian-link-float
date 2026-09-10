@@ -10,6 +10,9 @@ import { PreviewFrame } from './frame';
 
 interface PreviewOptions {
   positions: PositionCache;
+  pick: (leaf: WorkspaceLeaf) => void;
+  manage: (leaf: WorkspaceLeaf) => void;
+  cancelPicker: (leaf: WorkspaceLeaf) => boolean;
   rememberPosition: () => boolean;
   userAction: () => void;
 }
@@ -37,6 +40,7 @@ export class Preview {
   private statusTimer: number | null = null;
   private sourceView;
   private sourceFile: unknown;
+  private sourceGuest: Guest | null;
   private reading: ReadingPositionSession | null = null;
   private guard = new CloseGuard();
   private closing: Promise<boolean> | null = null;
@@ -48,6 +52,7 @@ export class Preview {
   constructor(private app: App, readonly source: WorkspaceLeaf, private url: string, private finished: () => void, private options: PreviewOptions, readonly origin?: LinkOrigin) {
     this.sourceState = source.getEphemeralState();
     this.sourceView = source.view;
+    this.sourceGuest = guestFor(source);
     this.sourceFile = source.getViewState().state?.file;
     this.previousFocus = leafElement(source).ownerDocument.activeElement as HTMLElement | null;
     this.sourceWasInert = leafElement(source).inert;
@@ -92,6 +97,7 @@ export class Preview {
     this.scope = new Scope(this.app.scope);
     this.scope.register([], 'Escape', (event) => {
       if (event.repeat || event.isComposing) return false;
+      if (this.options.cancelPicker(leaf)) return false;
       if (this.confirmation) { this.confirmation.resolve(false); return false; }
       if (this.menu) { this.closeOptions(); return false; }
       if (closePageSearch(leaf)) { this.closeButton?.focus(); return false; }
@@ -162,6 +168,7 @@ export class Preview {
     };
     this.closeButton = button('x', 'Close preview', () => { void this.close(); });
     button('maximize-2', 'Keep as Obsidian tab', () => this.keep());
+    button('scan', 'Hide elements', () => { this.closeOptions(false); this.options.pick(this.leaf!); });
     this.optionsButton = button('ellipsis', 'Preview options', () => this.menu ? this.closeOptions() : this.openOptions());
     this.optionsButton.setAttribute('aria-haspopup', 'menu');
     this.optionsButton.setAttribute('aria-expanded', 'false');
@@ -199,6 +206,7 @@ export class Preview {
     item('arrow-left', 'Back', () => guest.goBack(), !back);
     item('arrow-right', 'Forward', () => guest.goForward(), !forward);
     item('rotate-cw', 'Reload page', () => guest.reload());
+    item('eye', 'Hidden elements', () => this.options.manage(this.leaf!));
     item('copy', 'Copy page address', () => { void this.copyAddress(); });
     menu.createDiv({ cls: 'peek-menu-separator', attr: { role: 'separator' } });
     const pin = item('pin', 'Keep open on outside click', () => {
@@ -253,8 +261,9 @@ export class Preview {
   }
 
   ownsSource(): boolean {
-    return leafElement(this.source).isConnected && this.source.view === this.sourceView && this.source.getViewState().state?.file === this.sourceFile;
+    return leafElement(this.source).isConnected && this.source.view === this.sourceView && this.source.getViewState().state?.file === this.sourceFile && (!this.sourceGuest || guestFor(this.source) === this.sourceGuest);
   }
+  pageLeaf(): WorkspaceLeaf | null { return this.leaf; }
   containsLeaf(leaf: WorkspaceLeaf): boolean { return this.leaf === leaf; }
   isAttached(): boolean { return !this.leaf || leafElement(this.leaf).isConnected; }
   savedLayout(layout: Record<string, unknown>): Record<string, unknown> {
@@ -278,6 +287,7 @@ export class Preview {
     if (this.closing) return this.closing;
     if (!this.guest) { this.finishClose(); return Promise.resolve(true); }
     this.closeOptions(false);
+    if (this.leaf) this.options.cancelPicker(this.leaf);
     this.motion?.beginClose();
     this.setClosing(true);
     const closing = this.checkClose().finally(() => {
@@ -354,13 +364,14 @@ export class Preview {
     leaf?.detach();
     if (this.ownsSource()) {
       this.app.workspace.setActiveLeaf(this.source, { focus: false });
-      this.source.setEphemeralState(this.sourceState);
+      if (this.sourceView.getViewType() === 'markdown') this.source.setEphemeralState(this.sourceState);
       if (this.previousFocus?.isConnected) this.previousFocus.focus({ preventScroll: true });
     }
   }
 
   private disposeShell(): void {
     this.closed = true;
+    if (this.leaf) this.options.cancelPicker(this.leaf);
     this.motion?.stop();
     this.motion = null;
     this.frame?.stop();

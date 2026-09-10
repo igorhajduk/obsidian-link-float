@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-09-10
+
+- Hide selected website elements in previews and ordinary Web viewer tabs. Saved rules apply across page reloads and later visits.
+- Preview a selection before saving, cancel it, or use Hidden elements → Show again to restore an element across matching open tabs.
+- Open previews from links in ordinary Web viewer tabs with the configured modifier while preserving the source page’s form state, history, and scroll position.
+
+Requires Obsidian 1.13.7 or later on desktop with Web viewer enabled. Element selection covers the top document; iframe contents and Shadow DOM internals are not traversed.
+
 ## [0.1.1] - 2026-09-10
 
 - Publish a new version for automated Community directory review.
