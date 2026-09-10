@@ -159,4 +159,18 @@
   cursor: crosshair;
   outline: none;
   background: transparent;
+  overflow: hidden;
 }
+.peek-picker-highlight {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid #8b5cf6;
+  background: rgba(139, 92, 246, .16);
+  left: var(--picker-highlight-left);
+  top: var(--picker-highlight-top);
+  width: var(--picker-highlight-width);
+  height: var(--picker-highlight-height);
+}
+.peek-picker-highlight.is-active { display: block; }

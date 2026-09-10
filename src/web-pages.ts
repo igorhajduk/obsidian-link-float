@@ -65,6 +65,8 @@ class PageController {
   private panelResize: ResizeObserver | null = null;
   private draft: Draft | null = null;
   private shield: HTMLElement | null = null;
+  private highlight: HTMLElement | null = null;
+  private picker = 0;
   private releaseShield: (() => void) | null = null;
   private panelMode: 'pick' | 'manage' | null = null;
   private saving = false;
@@ -116,7 +118,15 @@ class PageController {
       const candidate = this.rule(message.draft as Draft);
       if (!validRule(candidate)) return;
       this.draft = message.draft as Draft;
+      this.highlight?.removeClass('is-active');
       this.renderPicker();
+    } else if (message.type === 'highlight' && message.picker === this.picker && this.panelMode === 'pick' && !this.draft) {
+      const r = message.rect as LinkOrigin | null;
+      const viewport = message.viewport as { width: number; height: number } | undefined;
+      if (!r) { this.highlight?.removeClass('is-active'); return; }
+      if (!viewport || ![r.x, r.y, r.width, r.height, viewport.width, viewport.height].every(Number.isFinite) || viewport.width <= 0 || viewport.height <= 0 || r.width < 0 || r.height < 0) return;
+      this.highlight?.setCssProps({ '--picker-highlight-left': `${r.x / viewport.width * 100}%`, '--picker-highlight-top': `${r.y / viewport.height * 100}%`, '--picker-highlight-width': `${r.width / viewport.width * 100}%`, '--picker-highlight-height': `${r.height / viewport.height * 100}%` });
+      this.highlight?.addClass('is-active');
     } else if (message.type === 'cancel') this.cancel();
     else if (message.type === 'error' && this.panelMode === 'pick') new Notice('The element cannot be selected reliably. Try its container.');
     else if (message.type === 'status' && Array.isArray(message.statuses)) {
@@ -152,25 +162,32 @@ class PageController {
     if (!this.active) return;
     if (!this.installed || !webUrl(this.url())) { new Notice('This web viewer page is not ready for hiding elements.'); return; }
     this.cancel(); this.panelMode = 'pick'; this.renderPicker();
-    try { await this.bridge?.run(`${this.runtime()}?.pick()`); if (this.panelMode === 'pick') this.createShield(); }
+    const picker = this.picker;
+    try { await this.bridge?.run(`${this.runtime()}?.pick(${picker})`); if (this.panelMode === 'pick' && picker === this.picker) this.createShield(); }
     catch { this.cancel(); new Notice('Could not start element selection.'); }
   }
   private createShield(): void {
     const parent = leafElement(this.leaf);
     const shield = this.shield = parent.createDiv({ cls: 'peek-picker-shield', attr: { tabindex: '0', 'aria-label': 'Choose a page element; Escape cancels' } });
+    this.highlight = shield.createDiv({ cls: 'peek-picker-highlight', attr: { 'aria-hidden': 'true' } });
+    const picker = this.picker;
     const geometry = () => {
       const g = this.guest.getBoundingClientRect(), p = parent.getBoundingClientRect();
       const scale = p.width / parent.offsetWidth || 1;
       shield.setCssProps({ '--picker-left': `${(g.x - p.x) / scale}px`, '--picker-top': `${(g.y - p.y) / scale}px`, '--picker-width': `${g.width / scale}px`, '--picker-height': `${g.height / scale}px` });
     };
     const coordinates = (e: MouseEvent) => { const r = shield.getBoundingClientRect(); return [(e.clientX - r.x) / r.width, (e.clientY - r.y) / r.height]; };
-    let hovering = false, down: { x: number; y: number } | null = null;
+    let hovering = false, pendingHover: number[] | null = null, down: { x: number; y: number } | null = null;
     const run = (method: string, args: number[]) => this.bridge?.run(`${this.runtime()}?.${method}(${args.join(',')})`).catch(() => {});
+    const flushHover = () => {
+      if (hovering || !pendingHover || this.draft || picker !== this.picker) return;
+      const point = pendingHover; pendingHover = null; hovering = true;
+      void Promise.resolve(run('hover', [...point, picker])).finally(() => { hovering = false; flushHover(); });
+    };
     shield.addEventListener('pointermove', event => {
-      if (hovering || this.draft) return;
-      hovering = true;
-      void run('hover', coordinates(event))?.finally(() => { hovering = false; });
+      pendingHover = coordinates(event); flushHover();
     });
+    shield.addEventListener('pointerleave', () => { pendingHover = null; this.highlight?.removeClass('is-active'); void run('clearHover', [picker]); });
     shield.addEventListener('pointerdown', event => { if (event.button === 0) { event.preventDefault(); down = { x: event.clientX, y: event.clientY }; } });
     shield.addEventListener('click', event => {
       event.preventDefault(); event.stopPropagation();
@@ -273,7 +290,9 @@ class PageController {
   }
   cancel(): boolean {
     const existed = !!this.panel;
+    this.picker++;
     this.releaseShield?.(); this.releaseShield = null; this.shield?.remove(); this.shield = null;
+    this.highlight = null;
     this.panelResize?.disconnect(); this.panelResize = null;
     this.panel?.remove(); this.panel = null; this.panelMode = null; this.draft = null;
     if (existed && this.installed) void this.bridge?.run(`${this.runtime()}?.cancel()`).catch(() => {});

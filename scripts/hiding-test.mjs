@@ -41,6 +41,12 @@ async function guestClick(leaf, selector, modifiers = [], drag = 0) {
   await job(`const g=${leaf}.view.webview;const r=await g.executeJavaScript(${JSON.stringify(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`)});const wc=electron.remote.webContents.fromId(g.getWebContentsId());const e={x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),button:'left',clickCount:1,modifiers:${JSON.stringify(modifiers)}};wc.sendInputEvent({...e,type:'mouseDown'});if(${drag})wc.sendInputEvent({...e,x:e.x+${drag},type:'mouseMove'});wc.sendInputEvent({...e,x:e.x+${drag},type:'mouseUp'});return true;`);
 }
 async function screenshot(name) { await job(`require('fs').writeFileSync(${JSON.stringify(new URL('../test-results/' + name, import.meta.url).pathname)},(await electron.remote.getCurrentWebContents().capturePage()).toPNG());return true;`); }
+async function hover(leaf, selector = '#banner') {
+  await job(`const g=${leaf}.view.webview;const r=await g.executeJavaScript(${JSON.stringify(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+10,y:r.y+10,w:innerWidth,h:innerHeight}})()`)});const b=g.getBoundingClientRect(),x=b.x+r.x*b.width/r.w,y=b.y+r.y*b.height/r.h;if(!document.elementFromPoint(x,y)?.classList.contains('peek-picker-shield'))throw Error('Hover target covered');const wc=electron.remote.getCurrentWebContents();wc.sendInputEvent({type:'mouseMove',x:Math.round(x+1),y:Math.round(y+1)});wc.sendInputEvent({type:'mouseMove',x:Math.round(x),y:Math.round(y)});return true;`);
+}
+async function highlightMatches(leaf, selector = '#banner') {
+  await job(`let last;for(let i=0;i<80;i++){const g=${leaf}.view.webview,r=await g.executeJavaScript(${JSON.stringify(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,vw:innerWidth,vh:innerHeight}})()`)}),b=g.getBoundingClientRect(),h=document.querySelector('.peek-picker-highlight.is-active'),a=h?.getBoundingClientRect(),expected={x:b.x+r.x*b.width/r.vw,y:b.y+r.y*b.height/r.vh,width:r.width*b.width/r.vw,height:r.height*b.height/r.vh};last={actual:a?.toJSON(),expected,highlight:h?.outerHTML,picker:${plugin}.pages.pages.get(g).picker};if(a&&getComputedStyle(h).display!=='none'&&['x','y','width','height'].every(k=>Math.abs(a[k]-expected[k])<2))return true;await new Promise(r=>setTimeout(r,50));}throw Error('Highlight does not align with its page element: '+JSON.stringify(last));`);
+}
 
 try {
   await job(`if(app.workspace.getLeavesOfType('webviewer').some(l=>!l.view.webview?.getURL().startsWith('http://127.0.0.1:')))throw Error('Fixture-only vault required');${plugin}.current?.forceClose();for(const l of app.workspace.getLeavesOfType('webviewer'))l.detach();for(const r of [...${plugin}.store.data.rules])await ${plugin}.store.remove(r.id);${plugin}.settings.modifier='Shift';await ${plugin}.saveSettings();window.hideSource=app.workspace.getLeavesOfType('markdown')[0];electron.remote.getCurrentWindow().show();electron.remote.getCurrentWindow().focus();return true;`);
@@ -52,6 +58,42 @@ try {
   assert.equal(await value("!!document.querySelector('.peek-picker')"), false);
   await job('app.workspace.setActiveLeaf(hideA);return true;');
   pass('Registry discovers pre-existing independent Web Viewer tabs and closes page controls when switching tabs');
+
+  const pageMarkup = await page('hideA', 'document.documentElement.outerHTML');
+  await job(`await ${plugin}.pages.pages.get(hideA.view.webview).pick();return true;`);
+  await hover('hideA'); await highlightMatches('hideA');
+  assert.equal(await page('hideA', 'document.documentElement.outerHTML'), pageMarkup);
+  await screenshot('hiding-highlight.png');
+  await page('hideA', 'scrollTo(0,80);true'); await highlightMatches('hideA');
+  assert.equal(await value("getComputedStyle(document.querySelector('.peek-picker-shield')).overflow"), 'hidden');
+  await page('hideA', 'savedNode.style.width="360px";true'); await highlightMatches('hideA');
+  await page('hideA', 'savedNode.style.width="";scrollTo(0,0);true'); await highlightMatches('hideA');
+  const oldViewport = await page('hideA', 'innerWidth');
+  await job('electron.remote.webContents.fromId(hideA.view.webview.getWebContentsId()).setZoomFactor(1.25);return true;');
+  try {
+    await job(`for(let i=0;i<80;i++){if(await hideA.view.webview.executeJavaScript('innerWidth')!==${oldViewport})return true;await new Promise(r=>setTimeout(r,50));}throw Error('Zoom did not change viewport');`);
+    await highlightMatches('hideA');
+  } finally { await job('electron.remote.webContents.fromId(hideA.view.webview.getWebContentsId()).setZoomFactor(1);return true;'); }
+  await highlightMatches('hideA');
+  pass('Host highlight tracks scrolling, DOM resizing and 125 percent web zoom without changing page markup');
+
+  await job(`const r=document.querySelector('.peek-picker').getBoundingClientRect();electron.remote.getCurrentWebContents().sendInputEvent({type:'mouseMove',x:Math.round(r.x+20),y:Math.round(r.y+20)});return true;`);
+  await waitValue("!document.querySelector('.peek-picker-highlight.is-active')");
+  await hover('hideA'); await highlightMatches('hideA');
+  await page('hideA', 'savedNode.remove();true');
+  await waitValue("!document.querySelector('.peek-picker-highlight.is-active')");
+  await page('hideA', 'document.body.prepend(savedNode);true');
+  await hover('hideA'); await highlightMatches('hideA');
+  await hostClick('Cancel');
+  assert.equal(await value("!!document.querySelector('.peek-picker-highlight')"), false);
+  await job(`await Promise.all([${plugin}.pages.pages.get(hideA.view.webview).pick(),${plugin}.pages.pages.get(hideA.view.webview).pick()]);return true;`);
+  assert.equal(await value("document.querySelectorAll('.peek-picker-shield').length"), 1);
+  assert.equal(await value("!!document.querySelector('.peek-picker-highlight.is-active')"), false);
+  await hover('hideA'); await highlightMatches('hideA');
+  await job('hideA.view.webview.reload();return true;'); await loaded('hideA');
+  assert.equal(await value("!!document.querySelector('.peek-picker-highlight')"), false);
+  pass('Leaving the page, removing the target, Cancel, rapid picker restart and navigation clear the highlight');
+
   await select('hideA', '#banner'); await hidden('hideA');
   assert.equal(await page('hideA', 'activations'), 0);
   assert.equal(await page('hideA', 'Object.keys(window).some(k=>k.startsWith("__linkFloat_"))'), false);
@@ -64,6 +106,9 @@ try {
   assert.deepEqual(await value("[...document.querySelectorAll('.peek-controls>button')].map(b=>b.getAttribute('aria-label'))"), ['Close preview', 'Keep as Obsidian tab', 'Hide elements', 'Preview options']);
   await hostClick('Hide elements', '.peek-controls');
   await waitValue("!!document.querySelector('.peek-picker-shield')");
+  await hover('hidePreview'); await highlightMatches('hidePreview');
+  await screenshot('hiding-highlight-preview.png');
+  pass('Host highlight aligns inside the preview overlay and leaves controls reachable');
   // select() restarts the same picker and exercises the same trusted host input.
   await select('hidePreview', '#banner');
   await screenshot('hiding-picker.png');
