@@ -5,22 +5,24 @@ import { editorLink, hasWebViewer, leafElement } from './compatibility';
 import { isClick, matchesModifier, webUrl, type TriggerModifier, type LinkOrigin } from './links';
 import { Preview } from './preview';
 import { PositionCache } from './positions';
+import { DataStore } from './data';
+import { WebPages } from './web-pages';
 
 export default class LinkFloatPlugin extends Plugin {
   settings: { modifier: TriggerModifier; rememberPosition: boolean } = { modifier: 'Shift', rememberPosition: true };
   positions!: PositionCache;
+  store!: DataStore;
+  pages: WebPages | null = null;
   private current: Preview | null = null;
   private unloaded = false;
   private openIntent = 0;
+  private settingsRevision = 0;
   private pendingClick: { url: string; source: WorkspaceLeaf; x: number; y: number; origin?: LinkOrigin } | null = null;
 
   async onload(): Promise<void> {
     const saved: unknown = await this.loadData();
-    if (saved && typeof saved === 'object') {
-      const data = saved as Record<string, unknown>;
-      if (data.modifier === 'Shift' || data.modifier === 'Alt' || data.modifier === 'Control' || data.modifier === 'Meta') this.settings.modifier = data.modifier;
-      if (typeof data.rememberPosition === 'boolean') this.settings.rememberPosition = data.rememberPosition;
-    }
+    this.store = new DataStore(saved, data => this.saveData(data), () => this.pages?.update());
+    this.settings = { ...this.store.data.settings };
     this.positions = new PositionCache(this.app);
     this.addSettingTab(new PreviewSettings(this));
     if (!Platform.isDesktopApp) return;
@@ -42,6 +44,20 @@ export default class LinkFloatPlugin extends Plugin {
         else Reflect.deleteProperty(workspace, 'getLayout');
       }
     });
+
+    this.pages = new WebPages(this.app, { store: this.store, modifier: () => this.settings.modifier, open: (url, leaf, origin) => { void this.openUrl(url, leaf, origin); } });
+    this.register(() => this.pages?.stop());
+    this.app.workspace.onLayoutReady(() => this.pages?.schedule());
+    this.addCommand({ id: 'hide-page-element', name: 'Hide an element on this page', checkCallback: checking => {
+      const leaf = this.current?.pageLeaf() ?? this.app.workspace.getMostRecentLeaf();
+      if (!leaf || leaf.view.getViewType() !== 'webviewer') return false;
+      if (!checking) this.pages?.pick(leaf); return true;
+    } });
+    this.addCommand({ id: 'manage-hidden-elements', name: 'Manage hidden elements', checkCallback: checking => {
+      const leaf = this.current?.pageLeaf() ?? this.app.workspace.getMostRecentLeaf();
+      if (!leaf || leaf.view.getViewType() !== 'webviewer') return false;
+      if (!checking) this.pages?.manage(leaf); return true;
+    } });
 
     this.addCommand({ id: 'open-url', name: 'Open URL in preview', callback: () => new UrlModal(this).open() });
     this.addCommand({ id: 'preview-link-at-cursor', name: 'Preview link at caret', editorCallback: (editor) => {
@@ -76,7 +92,9 @@ export default class LinkFloatPlugin extends Plugin {
         return url ? this.acceptDown(event, url) : false;
       },
     }));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => this.pages?.activeLeafChanged(leaf, this.current?.pageLeaf() ?? null)));
     this.registerEvent(this.app.workspace.on('layout-change', () => {
+      this.pages?.schedule();
       if (this.current && (!this.current.ownsSource() || !this.current.isAttached())) this.current.forceClose();
     }));
   }
@@ -121,6 +139,9 @@ export default class LinkFloatPlugin extends Plugin {
     if (this.unloaded || intent !== this.openIntent) return;
     const preview = new Preview(this.app, source, url, () => { if (this.current === preview) this.current = null; }, {
       positions: this.positions,
+      pick: leaf => this.pages?.pick(leaf),
+      manage: leaf => this.pages?.manage(leaf),
+      cancelPicker: leaf => this.pages?.cancel(leaf) ?? false,
       rememberPosition: () => this.settings.rememberPosition,
       userAction: () => { if (this.current === preview) this.openIntent++; },
     }, origin);
@@ -130,6 +151,17 @@ export default class LinkFloatPlugin extends Plugin {
       const report = !this.unloaded && this.current === preview;
       preview.forceClose();
       if (report) new MessageModal(this.app, 'Preview unavailable', String(error)).open();
+    }
+  }
+
+  async saveSettings(): Promise<void> {
+    const revision = ++this.settingsRevision;
+    try {
+      await this.store.settings(this.settings);
+      if (revision === this.settingsRevision) { this.settings = { ...this.store.data.settings }; this.pages?.update(); }
+    } catch {
+      if (revision === this.settingsRevision) { this.settings = { ...this.store.data.settings }; this.pages?.update(); }
+      new Notice('Could not save settings.');
     }
   }
 
@@ -166,7 +198,7 @@ class PreviewSettings extends PluginSettingTab {
           dropdown.addOptions({ Shift: 'Shift', Alt: 'Alt / Option', Control: 'Control', Meta: 'Command / Windows' })
             .setValue(this.plugin.settings.modifier).onChange(async value => {
               this.plugin.settings.modifier = value as TriggerModifier;
-              await this.plugin.saveData(this.plugin.settings);
+              await this.plugin.saveSettings();
             });
         }); },
       },
@@ -175,7 +207,7 @@ class PreviewSettings extends PluginSettingTab {
         render: setting => { setting.addToggle(toggle => {
           toggle.setValue(this.plugin.settings.rememberPosition).onChange(async value => {
             this.plugin.settings.rememberPosition = value;
-            await this.plugin.saveData(this.plugin.settings);
+            await this.plugin.saveSettings();
           });
         }); },
       },

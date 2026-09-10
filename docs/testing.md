@@ -6,7 +6,7 @@ Tested on macOS with Obsidian 1.13.7 and Electron 43.3.0, including a 120 Hz dis
 
 `npm run package` runs the official Obsidian ESLint configuration, unit tests, TypeScript, and the production build. It requires no installed Obsidian app or local vault.
 
-Unit tests cover URL and modifier handling, workspace snapshot filtering, bounded reading-position storage, expiry, malformed data, and migration behavior.
+Unit tests cover URL and modifier handling, workspace snapshot filtering, bounded reading-position storage, expiry, malformed data, migration behavior, concurrent settings/rule writes, and recovery after failed writes.
 
 ## Local integration harness
 
@@ -33,6 +33,7 @@ Run the checks relevant to the change:
 | Command | Coverage |
 | --- | --- |
 | `npm run lab:test` | Trusted modifier-click, source restoration, Keep, guest state, sessions, keyboard input, unload, and rapid cycles. |
+| `npm run lab:test-hiding` | Persistent selection, native-tab coverage, cross-tab propagation, Undo, DOM ambiguity/reordering, close cancellation, native Peek, narrow controls, and vault renderer restoration. Starts its own fixture on port 4182. |
 | `npm run lab:test-ui` | External controls, page geometry, themes, narrow windows, and hit testing. |
 | `npm run lab:test-lifecycle` | Concurrent requests, late completion, source ownership, search, and context menu. |
 | `npm run lab:test-session` | Leave/Cancel, draft preservation, replacement, reading restoration, and interruption. |
@@ -46,3 +47,9 @@ Reports and diagnostic captures are written to ignored `test-results/` and `.lab
 The performance diagnostic reports preparation latency separately from frame delivery. A short local sample is not a guarantee of zero dropped frames on arbitrary sites or under other system load. The renderer recovery test is distinct from a full application restart.
 
 For manual checks, use representative links, an editable page, and a long article. Check Cancel versus Leave, Keep preserving the same live page, reopening at the saved position, the chosen modifier, and sidebar resizing. Account-specific flows require separate testing in the destination site; fixture login does not establish compatibility with an external identity provider.
+
+## Persistent hiding acceptance
+
+The local hiding harness uses trusted Electron input in Obsidian 1.13.7 / Electron 43.3.0 on macOS. It checks picker isolation from earlier page handlers, reversible node/input/listener state, propagation to independent tabs, Keep identity, settings persistence, plugin unload/reload, cloned and reordered DOM, overlapping rules, exact-origin scope, native-tab Peek, native close cancellation, narrow-window rule controls, and restoration after reloading the disposable vault renderer.
+
+These fixtures do not establish selector durability across arbitrary live-site redesigns, iframe/Shadow DOM traversal, other desktop operating systems, or a full application-process restart of this new implementation. The persisted-file and restored-tab checks are distinct from that last scenario.
