@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-09-10
+
+- Render the element picker highlight in Obsidian’s interface while preserving selection, saved hiding rules, and page interaction.
+- Keep the highlight aligned during scrolling and zoom changes, and clear it when selection ends.
+
 ## [0.2.0] - 2026-09-10
 
 - Hide selected website elements in previews and ordinary Web viewer tabs. Saved rules apply across page reloads and later visits.

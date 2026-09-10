@@ -15,6 +15,7 @@ export function install(config: PageConfig): void {
   let draft: { selector: string; guard: TargetGuard } | null = null;
   let down: { x: number; y: number; anchor: HTMLAnchorElement } | null = null;
   let timer: number | undefined;
+  let picker = 0;
   let lastStatus = '';
   const marked = new Set<Element>();
   const stable = (value: string) => value.length <= 128 && !/\d{3}|[a-f\d]{8,}|^css-|^sc-/.test(value);
@@ -29,18 +30,12 @@ export function install(config: PageConfig): void {
   };
   const accepts = (el: Element, guard: TargetGuard) => el.localName === guard.tag && (!guard.id || el.id === guard.id) &&
     guard.classes.every(name => el.classList.contains(name)) && (!guard.text || digest(el.textContent ?? '') === guard.text);
-  const eligible = (el: Element | null): el is Element => !!el && el !== overlay && el.getRootNode() === document &&
+  const eligible = (el: Element | null): el is Element => !!el && el.getRootNode() === document &&
     !['html', 'body', 'head', 'script', 'style', 'link', 'meta'].includes(el.localName);
-  const overlay = document.createElement('div');
-  overlay.setAttribute('aria-hidden', 'true');
-  overlay.style.cssText = 'position:fixed!important;pointer-events:none!important;z-index:2147483647!important;border:2px solid #8b5cf6!important;background:rgba(139,92,246,.16)!important;box-sizing:border-box!important;display:none!important;';
   const highlight = (el: Element | null) => {
-    hovered = el;
-    if (!el) { overlay.style.setProperty('display', 'none', 'important'); return; }
-    if (!overlay.isConnected) document.documentElement.append(overlay);
-    const r = el.getBoundingClientRect();
-    for (const [name, value] of Object.entries({ left: r.x, top: r.y, width: r.width, height: r.height })) overlay.style.setProperty(name, `${value}px`, 'important');
-    overlay.style.setProperty('display', 'block', 'important');
+    hovered = el?.isConnected ? el : null;
+    const r = hovered?.getBoundingClientRect();
+    emit('highlight', { picker, rect: r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null, viewport: { width: innerWidth, height: innerHeight } });
   };
   const reconcile = () => {
     if (released) return;
@@ -69,9 +64,9 @@ export function install(config: PageConfig): void {
     if (config.rules.some(rule => rule.origin === location.origin) || picking) observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
     const status = JSON.stringify(statuses);
     if (status !== lastStatus) { lastStatus = status; emit('status', { statuses }); }
+    if (picking && hovered) highlight(hovered);
   };
-  const observer = new MutationObserver(records => {
-    if (records.every(r => r.target === overlay || (r.type === 'childList' && [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)].every(n => n === overlay)))) return;
+  const observer = new MutationObserver(() => {
     if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; reconcile(); }, 100);
   });
   const cancel = () => { picking = false; draft = null; selected = null; down = null; highlight(null); reconcile(); };
@@ -120,12 +115,13 @@ export function install(config: PageConfig): void {
   const api = {
     identity: token,
     update(rules: HidingRule[], modifier: TriggerModifier) { config.rules = rules; config.modifier = modifier; reconcile(); },
-    pick() { cancel(); picking = true; reconcile(); },
-    hover(x: number, y: number) {
-      if (!picking || draft) return;
+    pick(id: number) { cancel(); picker = id; picking = true; reconcile(); },
+    hover(x: number, y: number, id: number) {
+      if (!picking || draft || id !== picker) return;
       const el = document.elementFromPoint(x * innerWidth, y * innerHeight);
       highlight(eligible(el) ? el : null);
     },
+    clearHover(id: number) { if (id === picker) highlight(null); },
     select(x: number, y: number) { select(document.elementFromPoint(x * innerWidth, y * innerHeight)); },
     scroll(x: number, y: number, dx: number, dy: number) {
       if (!picking) return;
@@ -147,7 +143,6 @@ export function install(config: PageConfig): void {
       released = true; observer.disconnect(); window.clearTimeout(timer);
       for (const el of marked) el.removeAttribute(marker);
       for (const el of Array.from(document.querySelectorAll(`[${marker}]`))) el.removeAttribute(marker);
-      overlay.remove();
       window.removeEventListener('mousedown', mousedown, true);
       window.removeEventListener('click', click, true); window.removeEventListener('keydown', keydown, true); window.removeEventListener('dragstart', dragstart, true);
       window.removeEventListener('scroll', reposition, true); window.removeEventListener('resize', reposition);

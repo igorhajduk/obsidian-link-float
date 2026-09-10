@@ -50,6 +50,6 @@ For manual checks, use representative links, an editable page, and a long articl
 
 ## Persistent hiding acceptance
 
-The local hiding harness uses trusted Electron input in Obsidian 1.13.7 / Electron 43.3.0 on macOS. It checks picker isolation from earlier page handlers, reversible node/input/listener state, propagation to independent tabs, Keep identity, settings persistence, plugin unload/reload, cloned and reordered DOM, overlapping rules, exact-origin scope, native-tab Peek, native close cancellation, narrow-window rule controls, and restoration after reloading the disposable vault renderer.
+The local hiding harness uses trusted Electron input in Obsidian 1.13.7 / Electron 43.3.0 on macOS. It checks highlight alignment in ordinary tabs and previews, scrolling, DOM resizing, 125 percent web zoom, pointer exit, target removal, rapid picker restart, navigation cleanup, picker isolation from earlier page handlers, reversible node/input/listener state, propagation to independent tabs, Keep identity, settings persistence, plugin unload/reload, cloned and reordered DOM, overlapping rules, exact-origin scope, native-tab Peek, native close cancellation, narrow-window rule controls, and restoration after reloading the disposable vault renderer.
 
 These fixtures do not establish selector durability across arbitrary live-site redesigns, iframe/Shadow DOM traversal, other desktop operating systems, or a full application-process restart of this new implementation. The persisted-file and restored-tab checks are distinct from that last scenario.

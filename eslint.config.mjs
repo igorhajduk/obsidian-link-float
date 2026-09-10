@@ -18,11 +18,6 @@ export default defineConfig(
   },
   ...obsidianmd.configs.recommended,
   {
-    // Isolated website code has no Obsidian DOM helpers or stylesheet access.
-    files: ['src/page-runtime.ts'],
-    rules: { 'obsidianmd/prefer-create-el': 'off', 'obsidianmd/no-static-styles-assignment': 'off' },
-  },
-  {
     files: ['manifest.json'],
     languageOptions: { parser: tseslint.parser, parserOptions: { projectService: false } },
     rules: { 'obsidianmd/validate-manifest': 'error' },
