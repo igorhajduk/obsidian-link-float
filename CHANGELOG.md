@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.1] - 2026-09-10
+
+- Publish a new version for automated Community directory review.
+- No changes to plugin behavior.
+
 ## [0.1.0] - 2026-09-10
 
 Initial release.
