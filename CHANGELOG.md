@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.2] - 2026-10-01
+
+- Load the plugin even when its saved data cannot be fully read. Saved hiding rules that cannot be read are skipped, and the previous data is copied to a backup file in the plugin folder first.
+- Keep settings and hiding rules read-only when they were saved by a newer Link Float version or the data file is damaged, so synced devices do not overwrite them.
+
 ## [0.2.1] - 2026-09-10
 
 - Render the element picker highlight in Obsidian’s interface while preserving selection, saved hiding rules, and page interaction.

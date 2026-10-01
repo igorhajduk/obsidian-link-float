@@ -1,4 +1,4 @@
-import { Modal, Notice, Platform, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type WorkspaceLeaf } from 'obsidian';
+import { Modal, Notice, Platform, normalizePath, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type WorkspaceLeaf } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { editorInfoField } from 'obsidian';
 import { editorLink, hasWebViewer, leafElement } from './compatibility';
@@ -20,8 +20,15 @@ export default class LinkFloatPlugin extends Plugin {
   private pendingClick: { url: string; source: WorkspaceLeaf; x: number; y: number; origin?: LinkOrigin } | null = null;
 
   async onload(): Promise<void> {
-    const saved: unknown = await this.loadData();
+    let saved: unknown = null, unreadable = false;
+    try { saved = await this.loadData(); } catch { unreadable = true; }
+    // Core reports unparseable JSON as missing data; tell that apart from a first run.
+    if (saved == null && !unreadable) unreadable = await this.hasUnparseableData();
     this.store = new DataStore(saved, data => this.saveData(data), () => this.pages?.update());
+    // A synced or hand-edited data.json must never stop the plugin from loading.
+    if (unreadable) this.store.readOnly = 'Link Float could not read its data.json. Settings and hiding rules are read-only until the file is fixed or removed.';
+    else if (this.store.damaged) await this.replaceDamagedData(saved);
+    if (this.store.readOnly) new Notice(this.store.readOnly, 10000);
     this.settings = { ...this.store.data.settings };
     this.positions = new PositionCache(this.app);
     this.addSettingTab(new PreviewSettings(this));
@@ -161,7 +168,34 @@ export default class LinkFloatPlugin extends Plugin {
       if (revision === this.settingsRevision) { this.settings = { ...this.store.data.settings }; this.pages?.update(); }
     } catch {
       if (revision === this.settingsRevision) { this.settings = { ...this.store.data.settings }; this.pages?.update(); }
-      new Notice('Could not save settings.');
+      new Notice(this.store.readOnly ?? 'Could not save settings.');
+    }
+  }
+
+  private dataPath(name: string): string {
+    return normalizePath(`${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/${name}`);
+  }
+
+  private async hasUnparseableData(): Promise<boolean> {
+    try {
+      const path = this.dataPath('data.json');
+      if (!await this.app.vault.adapter.exists(path)) return false;
+      const text = await this.app.vault.adapter.read(path);
+      if (!text.trim()) return false;
+      JSON.parse(text);
+      return false;
+    } catch { return true; }
+  }
+
+  /** Copy the original data aside before the first write drops unreadable rules. */
+  private async replaceDamagedData(saved: unknown): Promise<void> {
+    const backup = this.dataPath(`data-backup-${Date.now()}.json`);
+    try {
+      await this.app.vault.adapter.write(backup, JSON.stringify(saved, null, 2));
+      await this.store.save();
+      new Notice(`Link Float removed saved hiding rules it could not read. The previous data was copied to ${backup}.`, 10000);
+    } catch {
+      this.store.readOnly = 'Link Float could not read some saved hiding rules or back them up. Settings and hiding rules are read-only for this session.';
     }
   }
 

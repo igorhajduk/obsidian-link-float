@@ -1,7 +1,7 @@
 {
   "id": "link-float",
   "name": "Link Float",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "minAppVersion": "1.13.7",
   "description": "Open web links in a temporary overlay with modifier-click.",
   "author": "gorky",

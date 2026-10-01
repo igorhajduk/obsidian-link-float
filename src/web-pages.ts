@@ -256,7 +256,7 @@ class PageController {
       }
       await this.options.store.add(rule);
       if (this.active && generation === this.generation) { this.cancel(); new Notice('Element hidden. Use hidden elements to show it again.'); }
-    } catch { if (this.active) new Notice('Could not save the hiding rule. Try again; the preview has not been saved.'); }
+    } catch { if (this.active) new Notice(this.options.store.readOnly ?? 'Could not save the hiding rule. Try again; the preview has not been saved.'); }
     finally { this.saving = false; if (this.panelMode === 'pick') this.renderPicker(); }
   }
   manage(): void { this.cancel(); this.panelMode = 'manage'; this.renderManager(); }
@@ -279,7 +279,7 @@ class PageController {
       if (state) row.createEl('small', { text: labels[state] ?? 'Not applied' });
       const button = this.button(row, 'Show again', () => {
         button.disabled = true;
-        void this.options.store.remove(rule.id).catch(() => { button.disabled = false; new Notice('Could not remove this rule. Try again.'); });
+        void this.options.store.remove(rule.id).catch(() => { button.disabled = false; new Notice(this.options.store.readOnly ?? 'Could not remove this rule. Try again.'); });
       });
       button.dataset.ruleId = rule.id;
     }
