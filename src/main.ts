@@ -1,9 +1,9 @@
-import { Modal, Notice, Platform, normalizePath, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type WorkspaceLeaf } from 'obsidian';
+import { FileView, Modal, Notice, Platform, normalizePath, parseLinktext, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type WorkspaceLeaf } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { editorInfoField } from 'obsidian';
-import { editorLink, hasWebViewer, leafElement } from './compatibility';
-import { isClick, matchesModifier, webUrl, type TriggerModifier, type LinkOrigin } from './links';
-import { Preview } from './preview';
+import { dismissPagePreviews, editorLink, hasWebViewer, leafElement } from './compatibility';
+import { isClick, matchesModifier, previewsFile, webUrl, type NoteLink, type TriggerModifier, type LinkOrigin } from './links';
+import { Preview, type PreviewTarget } from './preview';
 import { PositionCache } from './positions';
 import { DataStore } from './data';
 import { WebPages } from './web-pages';
@@ -17,7 +17,7 @@ export default class LinkFloatPlugin extends Plugin {
   private unloaded = false;
   private openIntent = 0;
   private settingsRevision = 0;
-  private pendingClick: { url: string; source: WorkspaceLeaf; x: number; y: number; origin?: LinkOrigin } | null = null;
+  private pendingClick: { target: PreviewTarget; source: WorkspaceLeaf; x: number; y: number; origin?: LinkOrigin } | null = null;
 
   async onload(): Promise<void> {
     let saved: unknown = null, unreadable = false;
@@ -67,9 +67,10 @@ export default class LinkFloatPlugin extends Plugin {
     } });
 
     this.addCommand({ id: 'open-url', name: 'Open URL in preview', callback: () => new UrlModal(this).open() });
-    this.addCommand({ id: 'preview-link-at-cursor', name: 'Preview link at caret', editorCallback: (editor) => {
-      const url = editorLink(editor, editor.getCursor());
-      if (url) void this.openUrl(url); else new Notice('Place the caret on an external web link.');
+    this.addCommand({ id: 'preview-link-at-cursor', name: 'Preview link at caret', editorCallback: (editor, context) => {
+      const link = editorLink(editor, editor.getCursor());
+      const target = link && this.resolve(link, context.file?.path ?? '');
+      if (target) void this.show(target); else new Notice('Place the caret on a web link or a link to another note or PDF.');
     } });
     this.addCommand({ id: 'close-preview', name: 'Close preview', checkCallback: (checking) => {
       if (!this.current) return false; if (!checking) void this.current.close(); return true;
@@ -82,9 +83,15 @@ export default class LinkFloatPlugin extends Plugin {
       this.pendingClick = null;
       const target = event.target as Element | null;
       if (target?.closest('.cm-editor')) return;
-      const anchor = target?.closest<HTMLAnchorElement>('.markdown-preview-view a.external-link');
-      const url = anchor && webUrl(anchor.getAttribute('href') || '');
-      if (url) this.acceptDown(event, url);
+      const anchor = target?.closest<HTMLAnchorElement>('.markdown-preview-view a.external-link, .markdown-preview-view a.internal-link');
+      if (!anchor) return;
+      if (anchor.classList.contains('internal-link')) {
+        const linktext = anchor.getAttribute('data-href');
+        if (linktext) this.acceptDown(event, { kind: 'note', linktext });
+      } else {
+        const url = webUrl(anchor.getAttribute('href') || '');
+        if (url) this.acceptDown(event, { kind: 'web', url });
+      }
     }, true);
     this.registerDomEvent(document, 'click', event => this.acceptClick(event), true);
     this.registerDomEvent(document, 'keydown', event => { if (event.key === 'Escape') this.pendingClick = null; }, true);
@@ -95,8 +102,8 @@ export default class LinkFloatPlugin extends Plugin {
         const info = view.state.field(editorInfoField, false);
         if (offset === null || !info?.editor) return false;
         const line = view.state.doc.lineAt(offset);
-        const url = editorLink(info.editor, { line: line.number - 1, ch: offset - line.from });
-        return url ? this.acceptDown(event, url) : false;
+        const link = editorLink(info.editor, { line: line.number - 1, ch: offset - line.from });
+        return link ? this.acceptDown(event, link) : false;
       },
     }));
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => this.pages?.activeLeafChanged(leaf, this.current?.pageLeaf() ?? null)));
@@ -106,16 +113,20 @@ export default class LinkFloatPlugin extends Plugin {
     }));
   }
 
-  private acceptDown(event: MouseEvent, url: string): boolean {
+  private acceptDown(event: MouseEvent, link: NoteLink): boolean {
     if (event.button !== 0 || event.defaultPrevented || !matchesModifier(event, this.settings.modifier)) return false;
     const source = this.app.workspace.getLeavesOfType('markdown').find(leaf =>
       event.target instanceof Node && leaf.view.containerEl.contains(event.target));
     if (!source || source.view.getViewType() !== 'markdown' || leafElement(source).ownerDocument !== document) return false;
+    // Links that do not resolve to another note or PDF keep their core behavior.
+    const preview = this.resolve(link, source.view instanceof FileView ? source.view.file?.path ?? '' : '');
+    if (!preview) return false;
     const target = event.target as Element | null;
     const rect = target?.closest('a, .cm-underline')?.getBoundingClientRect();
     const origin = rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : { x: event.clientX, y: event.clientY, width: 0, height: 0 };
-    this.pendingClick = { url, source, x: event.clientX, y: event.clientY, origin };
+    this.pendingClick = { target: preview, source, x: event.clientX, y: event.clientY, origin };
     event.preventDefault(); event.stopImmediatePropagation();
+    if (preview.kind === 'file') dismissPagePreviews(source);
     return true;
   }
 
@@ -125,17 +136,29 @@ export default class LinkFloatPlugin extends Plugin {
     if (!pending) return;
     event.preventDefault(); event.stopImmediatePropagation();
     if (event.button === 0 && matchesModifier(event, this.settings.modifier) && isClick(pending, { x: event.clientX, y: event.clientY })) {
-      void this.openUrl(pending.url, pending.source, pending.origin);
+      void this.show(pending.target, pending.source, pending.origin);
     }
   }
 
+  /** Resolve note links the way core does, so headings, blocks, and PDF pages keep their native handling. */
+  private resolve(link: NoteLink, sourcePath: string): PreviewTarget | null {
+    if (link.kind === 'web') return { kind: 'web', url: link.url };
+    const { path, subpath } = parseLinktext(link.linktext);
+    const file = this.app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+    return file && previewsFile(file, sourcePath) ? { kind: 'file', file, subpath } : null;
+  }
+
   async openUrl(value: string, source = this.app.workspace.getMostRecentLeaf(), origin?: LinkOrigin): Promise<void> {
-    if (this.unloaded) return;
     const url = webUrl(value);
     if (!url) { new Notice('Enter a valid HTTP or HTTPS URL without embedded credentials.'); return; }
+    await this.show({ kind: 'web', url }, source, origin);
+  }
+
+  async show(target: PreviewTarget, source = this.app.workspace.getMostRecentLeaf(), origin?: LinkOrigin): Promise<void> {
+    if (this.unloaded) return;
     if (source && this.current?.containsLeaf(source)) source = this.current.source;
     if (!source || leafElement(source).ownerDocument !== document) { new Notice('Open the preview from the main vault window.'); return; }
-    if (!hasWebViewer(this.app)) {
+    if (target.kind === 'web' && !hasWebViewer(this.app)) {
       new MessageModal(this.app, 'Enable Web viewer', 'Enable Settings → Core plugins → Web viewer, then try this link again.').open(); return;
     }
     if (typeof leafElement(source).showPopover !== 'function') {
@@ -144,7 +167,7 @@ export default class LinkFloatPlugin extends Plugin {
     const intent = ++this.openIntent;
     if (this.current && !await this.current.close(false)) return;
     if (this.unloaded || intent !== this.openIntent) return;
-    const preview = new Preview(this.app, source, url, () => { if (this.current === preview) this.current = null; }, {
+    const preview = new Preview(this.app, source, target, () => { if (this.current === preview) this.current = null; }, {
       positions: this.positions,
       pick: leaf => this.pages?.pick(leaf),
       manage: leaf => this.pages?.manage(leaf),
@@ -227,7 +250,7 @@ class PreviewSettings extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
       {
-        name: 'Click modifier', desc: 'Hold this key while clicking a web link.',
+        name: 'Click modifier', desc: 'Hold this key while clicking a web link or a link to another note or PDF.',
         render: setting => { setting.addDropdown(dropdown => {
           dropdown.addOptions({ Shift: 'Shift', Alt: 'Alt / Option', Control: 'Control', Meta: 'Command / Windows' })
             .setValue(this.plugin.settings.modifier).onChange(async value => {

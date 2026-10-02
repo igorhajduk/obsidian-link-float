@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-10-02
+
+- Hold the modifier and click a link to another note or a PDF in your vault to open it in the overlay, from Reading view and Live Preview. Close it with Escape or keep it as a tab.
+- Heading and block links scroll to their target, PDF page links open that page, and plain PDF links return to the position Obsidian remembers, as with an ordinary link click.
+- Notes open in your default view mode and can be edited. Links to missing notes, within the same note, or to other file types keep Obsidian's usual behavior.
+
 ## [0.2.2] - 2026-10-01
 
 - Load the plugin even when its saved data cannot be fully read. Saved hiding rules that cannot be read are skipped, and the previous data is copied to a backup file in the plugin folder first.

@@ -19,7 +19,7 @@ Dependencies are pinned in `package-lock.json`. The scoped override for `eslint-
 | `npm run build` | Typecheck and build the production plugin. |
 | `npm run check` | Run lint, tests, typecheck, and build. |
 | `npm run package` | Run checks and write `dist/link-float` and SHA-256 checksums. |
-| `npm run release:notes -- 0.2.2` | Validate release metadata and extract the matching changelog section. |
+| `npm run release:notes -- 0.3.0` | Validate release metadata and extract the matching changelog section. |
 
 `src/` contains the plugin, `tests/` contains unit tests, and `scripts/` contains build and local integration tools. The build externalizes Obsidian and CodeMirror and does not include the test harness, fixtures, or developer tools. The guest helper is built separately as an isolated-world script, including the pinned CSS Selector Generator dependency and its license notice. The picker highlight uses Obsidian DOM helpers and plugin CSS in the host interface; the guest helper only reports target geometry. All recommended Obsidian lint rules apply to both scripts. See [architecture](docs/architecture.md) and [testing](docs/testing.md).
 

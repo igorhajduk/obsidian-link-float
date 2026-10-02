@@ -18,13 +18,15 @@ export class PreviewMotion {
   private animations: Animation[] = [];
   private snapshot: HTMLCanvasElement | null = null;
   private cancelPreparation: (() => void) | null = null;
+  private standIn: HTMLElement | null = null;
   private stopped = false;
   private generation = 0;
   private readonly page: HTMLElement;
   private readonly reduced: MediaQueryList;
   private readonly preferenceChanged = () => this.settle();
 
-  constructor(private surface: HTMLElement, private origin?: LinkOrigin) {
+  /** `copyPage` decides, when motion starts, whether a static copy moves instead of the live page. */
+  constructor(private surface: HTMLElement, private origin?: LinkOrigin, private copyPage: () => boolean = () => false) {
     this.page = surface.querySelector<HTMLElement>(':scope > .workspace-leaf-content')!;
     this.reduced = surface.ownerDocument.defaultView!.matchMedia('(prefers-reduced-motion: reduce)');
     this.reduced.addEventListener('change', this.preferenceChanged);
@@ -43,9 +45,15 @@ export class PreviewMotion {
     return `translate(${x - frame.left - width / 2}px, ${y - frame.top - height / 2}px) scale(${sx}, ${sy})`;
   }
 
-  open(guest: Guest): void {
+  /** Keep the page hidden but untransformed, so core can measure while it scrolls to a link target. */
+  hold(): void {
+    if (!this.stopped && !this.reduced.matches) this.surface.dataset.peekMotion = 'preparing';
+  }
+
+  open(guest: Guest | null): void {
     if (this.stopped || this.reduced.matches) return;
     this.surface.dataset.peekMotion = 'preparing';
+    this.makeStandIn();
     this.animate('normal');
     for (const animation of this.animations) animation.pause();
     // Attaching an Electron guest stalls the host renderer. Let that work and
@@ -53,7 +61,7 @@ export class PreviewMotion {
     const viewport = this.surface.ownerDocument.defaultView!;
     let frame = 0, released = false;
     const cleanup = () => {
-      guest.removeEventListener('dom-ready', ready);
+      guest?.removeEventListener('dom-ready', ready);
       window.clearTimeout(timeout);
       viewport.cancelAnimationFrame(frame);
       this.cancelPreparation = null;
@@ -72,18 +80,47 @@ export class PreviewMotion {
       });
     };
     const timeout = window.setTimeout(ready, 120);
-    guest.addEventListener('dom-ready', ready, { once: true });
     this.cancelPreparation = cleanup;
+    // Notes and PDFs render in the host; only their first paint needs to settle.
+    if (guest) guest.addEventListener('dom-ready', ready, { once: true }); else ready();
     const page = this.animations[0];
     void page.finished.then(() => {
       if (this.animations[0] === page && this.surface.dataset.peekMotion === 'opening') this.settle();
     }, () => {});
   }
 
+  /**
+   * The editor measures its lines through CSS transforms and would scroll or misplace clicks
+   * after scaling. Notes therefore move a static copy while the live view keeps its final geometry.
+   */
+  private makeStandIn(): void {
+    this.removeStandIn();
+    if (!this.copyPage()) return;
+    const copy = this.page.cloneNode(true) as HTMLElement;
+    copy.addClass('peek-stand-in');
+    copy.setAttribute('aria-hidden', 'true');
+    copy.inert = true;
+    copy.setCssProps({ '--peek-stand-in-left': `${this.page.offsetLeft}px`, '--peek-stand-in-top': `${this.page.offsetTop}px`, '--peek-stand-in-width': `${this.page.offsetWidth}px`, '--peek-stand-in-height': `${this.page.offsetHeight}px` });
+    this.surface.append(copy);
+    // Cloning does not carry scroll offsets.
+    const live = this.page.querySelectorAll('*'), copied = copy.querySelectorAll('*');
+    live.forEach((el, i) => {
+      if (el.scrollTop || el.scrollLeft) { copied[i].scrollTop = el.scrollTop; copied[i].scrollLeft = el.scrollLeft; }
+    });
+    this.standIn = copy;
+    this.surface.dataset.peekStandIn = '';
+  }
+
+  private removeStandIn(): void {
+    this.standIn?.remove();
+    this.standIn = null;
+    delete this.surface.dataset.peekStandIn;
+  }
+
   /** Both directions use one timeline. Page pixels stay opaque while shrinking. */
   private animate(direction: PlaybackDirection): void {
     const timing = { duration: PreviewMotion.duration, fill: 'both' as FillMode, direction };
-    const page = this.page.animate([
+    const page = (this.standIn ?? this.page).animate([
       { transform: this.collapsed() },
       { transform: 'translate(0px, 0px) scale(1, 1)' },
     ], { ...timing, easing: springEasing });
@@ -165,6 +202,7 @@ export class PreviewMotion {
       for (const animation of this.animations) animation.reverse();
     } else {
       this.cancelAnimations();
+      this.makeStandIn();
       this.animate('reverse');
     }
     await Promise.race([
@@ -181,6 +219,7 @@ export class PreviewMotion {
   settle(): void {
     this.cancelPreparation?.();
     this.cancelAnimations();
+    this.removeStandIn();
     delete this.surface.dataset.peekMotion;
   }
 

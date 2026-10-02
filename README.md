@@ -1,33 +1,39 @@
 # Link Float
 
-Open a live webpage over your note or Web viewer tab, then close it or keep it as an Obsidian tab. Hold **Shift** and click a web link in Reading view, Live Preview, or an ordinary Web viewer tab. Your Markdown stays unchanged.
+Open a live webpage, another note, or a PDF over your note, then close it or keep it as an Obsidian tab. Hold **Shift** and click a web link in Reading view, Live Preview, or an ordinary Web viewer tab, or a link to another note or PDF in your vault. Your Markdown stays unchanged.
 
 ![Previewing a website element hiding rule in Link Float](docs/images/preview.png)
 
 ## Requirements and installation
 
-Requires **Obsidian 1.13.7 or later on desktop**, a recent Obsidian installer, and the **Web viewer** core plugin. Tested on macOS. Mobile is not supported; Windows and Linux interface behavior has not been verified.
+Requires **Obsidian 1.13.7 or later on desktop** and a recent Obsidian installer. Web links also require the **Web viewer** core plugin. Tested on macOS. Mobile is not supported; Windows and Linux interface behavior has not been verified.
 
 For manual installation:
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from a [GitHub release](https://github.com/igorhajduk/obsidian-link-float/releases).
 2. Put them in your vault's `.obsidian/plugins/link-float/` directory.
-3. Enable **Web viewer** in Core plugins and **Link Float** in Community plugins.
+3. Enable **Link Float** in Community plugins, and **Web viewer** in Core plugins for web links.
 
 When updating, replace those three files and retain any existing `data.json` settings file.
 
 ## Using previews
 
-- **Open:** hold Shift and click an HTTP(S) link. Change the modifier in **Settings → Link Float** to Alt/Option, Control, or Command/Windows.
-- **Close:** click ×, click outside the page, or use Cmd/Ctrl+W. With focus inside the webpage, the first Escape moves focus to the controls; the next closes the preview.
+- **Open:** hold Shift and click an HTTP(S) link, or a link to another note or PDF in your vault. Change the modifier in **Settings → Link Float** to Alt/Option, Control, or Command/Windows.
+- **Close:** click ×, click outside the page, or use Cmd/Ctrl+W. With focus inside the webpage, or while editing a note, the first Escape moves focus to the controls; the next closes the preview.
 - **Keep:** the expand button turns the same live page into an ordinary Obsidian tab. Its form state, history, and scroll position remain intact.
-- **Search:** Cmd/Ctrl+F searches the webpage. Enter advances to the next match; Escape closes search first.
-- **Hide elements:** the selection button between Keep and ⋯ starts the element picker.
-- **More:** the ⋯ menu provides back, forward, reload, copy address, **Hidden elements**, and **Keep open on outside click**.
+- **Search:** Cmd/Ctrl+F searches the webpage. Enter advances to the next match; Escape closes search first. Notes and PDFs use Obsidian's own search.
+- **Hide elements:** on webpages, the selection button between Keep and ⋯ starts the element picker.
+- **More:** the ⋯ menu provides back, forward, reload, copy address, **Hidden elements**, and **Keep open on outside click**. For notes and PDFs it shows the file path and **Keep open on outside click**.
 
 The page expands from the clicked link and closes with the reverse movement. Its size follows the space between the sidebars. Reduced-motion preferences are respected.
 
 The command palette also provides **Open URL in preview**, **Preview link at caret**, **Close preview**, and **Keep preview as tab**.
+
+## Notes and PDFs
+
+Wikilinks and Markdown links to another note or a PDF open in the same overlay, from Reading view and Live Preview. The preview opens the file as an ordinary link click would: heading and block links scroll to their target, PDF page links open that page, and a plain PDF link returns to the position Obsidian remembers for that file. Notes open in your default view mode and can be edited; Obsidian saves changes as usual.
+
+Links to missing notes, links within the same note, and links to other file types, such as images, keep Obsidian's usual behavior.
 
 ## Hiding page elements
 

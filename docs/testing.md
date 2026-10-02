@@ -6,7 +6,7 @@ Tested on macOS with Obsidian 1.13.7 and Electron 43.3.0, including a 120 Hz dis
 
 `npm run package` runs the official Obsidian ESLint configuration, unit tests, TypeScript, and the production build. It requires no installed Obsidian app or local vault.
 
-Unit tests cover URL and modifier handling, workspace snapshot filtering, bounded reading-position storage, expiry, malformed data, migration behavior, concurrent settings/rule writes, and recovery after failed writes.
+Unit tests cover URL and modifier handling, which vault files open in a preview, workspace snapshot filtering, bounded reading-position storage, expiry, malformed data, migration behavior, concurrent settings/rule writes, and recovery after failed writes.
 
 ## Local integration harness
 
@@ -38,6 +38,7 @@ Run the checks relevant to the change:
 | `npm run lab:test-lifecycle` | Concurrent requests, late completion, source ownership, search, and context menu. |
 | `npm run lab:test-session` | Leave/Cancel, draft preservation, replacement, reading restoration, and interruption. |
 | `npm run lab:test-motion` | Forward/reverse geometry, opaque moving pixels, live guest identity, interruption, reduced motion, and capture cleanup. |
+| `npm run lab:test-notes` | Note and PDF links from Reading view and Live Preview, heading and block positions compared with ordinary tabs, PDF page links and remembered positions, ignored links, replacement, Keep, editing with Escape, and search. Writes its own fixture notes and PDF into the lab vault. |
 | `npm run lab:test-frame` | Both sidebars, resizing, centering, and retained guest identity. |
 | `npm run lab:test-recovery` | Reload of the Peek Lab renderer and workspace/reading recovery. Requires an otherwise empty test workspace. |
 | `npm run lab:measure-motion` | Three fixture cycles measured from deduplicated Chromium frame reports without screen recording. |

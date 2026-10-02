@@ -1,5 +1,5 @@
-import { App, Scope, WorkspaceLeaf, setIcon } from 'obsidian';
-import { guestFor, hideTabHeader, keepLeafVisible, preparePreviewLeaf, leafElement, leafId, workspaceElement, closePageSearch, showPageSearch, handlePageSearchKey, type Guest } from './compatibility';
+import { App, FileView, Scope, WorkspaceLeaf, setIcon, type TFile } from 'obsidian';
+import { guestFor, hideTabHeader, keepLeafVisible, preparePreviewLeaf, leafElement, leafId, workspaceElement, closePageSearch, showPageSearch, handlePageSearchKey, scrollSettled, type Guest } from './compatibility';
 import { withoutPreview } from './layout';
 import { isClick, type LinkOrigin } from './links';
 import { CloseGuard } from './close-guard';
@@ -17,9 +17,13 @@ interface PreviewOptions {
   userAction: () => void;
 }
 
-/** A real core Web viewer leaf enters the CSS top layer without DOM reparenting. */
+/** A web page in core Web viewer, or a vault note or PDF opened as a core link would open it. */
+export type PreviewTarget = { kind: 'web'; url: string } | { kind: 'file'; file: TFile; subpath: string };
+
+/** A real core leaf enters the CSS top layer without DOM reparenting. */
 export class Preview {
   private closed = false;
+  private shown = false;
   private leaf: WorkspaceLeaf | null = null;
   private guest: Guest | null = null;
   private scope: Scope | null = null;
@@ -49,7 +53,7 @@ export class Preview {
   private frame: PreviewFrame | null = null;
   private confirmation: { element: HTMLElement; resolve: (leave: boolean) => void } | null = null;
 
-  constructor(private app: App, readonly source: WorkspaceLeaf, private url: string, private finished: () => void, private options: PreviewOptions, readonly origin?: LinkOrigin) {
+  constructor(private app: App, readonly source: WorkspaceLeaf, private target: PreviewTarget, private finished: () => void, private options: PreviewOptions, readonly origin?: LinkOrigin) {
     this.sourceState = source.getEphemeralState();
     this.sourceView = source.view;
     this.sourceGuest = guestFor(source);
@@ -73,26 +77,45 @@ export class Preview {
     el.classList.add('peek-surface');
     el.setAttribute('popover', 'manual');
     el.setAttribute('role', 'dialog');
-    el.setAttribute('aria-label', 'Web link preview');
-    await leaf.setViewState({ type: 'webviewer', active: true, state: { url: this.url, navigate: true } });
+    el.setAttribute('aria-label', this.target.kind === 'web' ? 'Web link preview' : 'Linked file preview');
+    if (this.target.kind === 'file') {
+      // A note or PDF paints as soon as it opens. Lay it out at the overlay's size, hidden and out
+      // of the tab row, so it neither flashes beside the source nor squeezes it.
+      el.classList.add('peek-file', 'peek-pending');
+      this.frame = new PreviewFrame(el, workspaceElement(this.app));
+    }
+    if (this.target.kind === 'web') await leaf.setViewState({ type: 'webviewer', active: true, state: { url: this.target.url, navigate: true } });
+    // Core resolves headings, blocks, PDF pages, and remembered PDF positions from the same open state as a link click.
+    else await leaf.openFile(this.target.file, { active: true, eState: this.target.subpath ? { subpath: this.target.subpath } : undefined });
     if (this.closed) { leaf.detach(); return; }
     await leaf.loadIfDeferred();
     if (this.closed) { leaf.detach(); return; }
-    const guest = this.guest = guestFor(leaf);
-    if (!guest) throw new Error('This Obsidian Web viewer cannot be hosted by Link Float.');
+    const guest = this.guest = this.target.kind === 'web' ? guestFor(leaf) : null;
+    if (this.target.kind === 'web' && !guest) throw new Error('This Obsidian Web viewer cannot be hosted by Link Float.');
     this.releaseLeafPresentation = preparePreviewLeaf(leaf);
 
     // Guest navigation, popup routing, permissions, and cookies remain host-owned.
     this.buildChrome(el, guest);
-    this.frame = new PreviewFrame(el, workspaceElement(this.app));
+    this.frame ??= new PreviewFrame(el, workspaceElement(this.app));
     leafElement(this.source).inert = true;
+    const copyPage = () => leaf.view.getViewType() === 'markdown';
+    const motion = this.motion = new PreviewMotion(el, this.origin, copyPage);
+    const subpath = this.target.kind === 'file' ? this.target.subpath : '';
+    // A note starts moving once its view has rendered and scrolled at the overlay's size.
+    const settle = copyPage() || !!subpath;
+    if (settle) motion.hold();
     el.showPopover();
-    workspace.setActiveLeaf(this.source, { focus: false });
+    el.classList.remove('peek-pending');
+    this.shown = true;
+    // Core commands such as search act on the active leaf, so a note or PDF preview takes that role.
+    workspace.setActiveLeaf(this.target.kind === 'file' ? leaf : this.source, { focus: false });
     leaf.onResize();
-    this.motion = new PreviewMotion(el, this.origin);
-    this.motion.open(guest);
+    // Repeat the link's heading, block, or PDF page once the overlay is laid out in the top layer.
+    if (subpath) leaf.setEphemeralState({ subpath });
+    if (settle) void scrollSettled(leaf).then(() => { if (!this.closed) motion.open(guest); });
+    else motion.open(guest);
     this.closeButton?.focus();
-    this.reading = new ReadingPositionSession(guest, this.options.positions, this.options.rememberPosition, this.url);
+    if (guest && this.target.kind === 'web') this.reading = new ReadingPositionSession(guest, this.options.positions, this.options.rememberPosition, this.target.url);
 
     this.scope = new Scope(this.app.scope);
     this.scope.register([], 'Escape', (event) => {
@@ -106,13 +129,15 @@ export class Preview {
       if (active === guest) {
         this.closeButton?.focus();
         this.setStatus('Press Escape again to close, or continue browsing.');
-      } else if (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA') {
+      } else if (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA' || (active instanceof HTMLElement && active.isContentEditable)) {
+        // Editing a note, or typing in a field, leaves the first Escape to the text.
         this.closeButton?.focus();
       } else { void this.close(); }
       return false;
     });
     this.scope.register(['Mod'], 'w', () => { void this.close(); return false; });
-    this.scope.register(['Mod'], 'f', () => {
+    // Notes and PDFs keep core search; Web viewer search needs the leaf's own scope.
+    if (guest) this.scope.register(['Mod'], 'f', () => {
       if (this.closing) return false;
       this.closeOptions(false);
       if (!showPageSearch(leaf)) this.setStatus('Find in page is unavailable in this Web viewer.');
@@ -157,7 +182,7 @@ export class Preview {
     }, true);
   }
 
-  private buildChrome(el: HTMLElement, guest: Guest): void {
+  private buildChrome(el: HTMLElement, guest: Guest | null): void {
     const chrome = this.chrome = el.createDiv();
     chrome.className = 'peek-controls';
     chrome.setAttribute('role', 'group');
@@ -168,7 +193,7 @@ export class Preview {
     };
     this.closeButton = button('x', 'Close preview', () => { void this.close(); });
     button('maximize-2', 'Keep as Obsidian tab', () => this.keep());
-    button('scan', 'Hide elements', () => { this.closeOptions(false); this.options.pick(this.leaf!); });
+    if (guest) button('scan', 'Hide elements', () => { this.closeOptions(false); this.options.pick(this.leaf!); });
     this.optionsButton = button('ellipsis', 'Preview options', () => this.menu ? this.closeOptions() : this.openOptions());
     this.optionsButton.setAttribute('aria-haspopup', 'menu');
     this.optionsButton.setAttribute('aria-expanded', 'false');
@@ -177,6 +202,7 @@ export class Preview {
     this.status.setAttribute('role', 'status');
     el.prepend(chrome);
     el.append(this.status);
+    if (!guest) return;
     this.listen(guest, 'focus', () => { this.closeOptions(false); this.setStatus(''); });
     this.listen(guest, 'did-start-loading', () => this.setStatus('Loading…', false));
     for (const name of ['dom-ready', 'did-stop-loading']) this.listen(guest, name, () => this.setStatus(''));
@@ -184,12 +210,12 @@ export class Preview {
   }
 
   private openOptions(): void {
-    if (this.closed || !this.chrome || !this.guest) return;
+    if (this.closed || !this.chrome || !this.shown) return;
     const menu = this.menu = this.chrome.createDiv({ cls: 'peek-menu', attr: { role: 'menu', 'aria-label': 'Preview options' } });
     this.optionsButton?.setAttribute('aria-expanded', 'true');
     const guest = this.guest;
-    const currentUrl = this.currentUrl();
-    menu.createDiv({ cls: 'peek-menu-url', text: currentUrl, attr: { title: currentUrl, role: 'presentation' } });
+    const location = guest ? this.currentUrl() : this.currentFile();
+    menu.createDiv({ cls: 'peek-menu-url', text: location, attr: { title: location, role: 'presentation' } });
     const item = (icon: string, label: string, action: () => void, disabled = false) => {
       const button = menu.createEl('button', { cls: 'peek-menu-item', attr: { type: 'button', role: 'menuitem', tabindex: '-1' } });
       setIcon(button.createSpan({ cls: 'peek-menu-icon' }), icon);
@@ -201,14 +227,16 @@ export class Preview {
       });
       return button;
     };
-    let back = false, forward = false;
-    try { back = guest.canGoBack(); forward = guest.canGoForward(); } catch { /* Guest is attaching. */ }
-    item('arrow-left', 'Back', () => guest.goBack(), !back);
-    item('arrow-right', 'Forward', () => guest.goForward(), !forward);
-    item('rotate-cw', 'Reload page', () => guest.reload());
-    item('eye', 'Hidden elements', () => this.options.manage(this.leaf!));
-    item('copy', 'Copy page address', () => { void this.copyAddress(); });
-    menu.createDiv({ cls: 'peek-menu-separator', attr: { role: 'separator' } });
+    if (guest) {
+      let back = false, forward = false;
+      try { back = guest.canGoBack(); forward = guest.canGoForward(); } catch { /* Guest is attaching. */ }
+      item('arrow-left', 'Back', () => guest.goBack(), !back);
+      item('arrow-right', 'Forward', () => guest.goForward(), !forward);
+      item('rotate-cw', 'Reload page', () => guest.reload());
+      item('eye', 'Hidden elements', () => this.options.manage(this.leaf!));
+      item('copy', 'Copy page address', () => { void this.copyAddress(); });
+      menu.createDiv({ cls: 'peek-menu-separator', attr: { role: 'separator' } });
+    }
     const pin = item('pin', 'Keep open on outside click', () => {
       this.locked = !this.locked;
       this.optionsButton?.classList.toggle('is-pinned', this.locked);
@@ -237,7 +265,14 @@ export class Preview {
   }
 
   private currentUrl(): string {
-    try { return this.guest?.getURL() || this.url; } catch { return this.url; }
+    const opened = this.target.kind === 'web' ? this.target.url : '';
+    try { return this.guest?.getURL() || opened; } catch { return opened; }
+  }
+
+  /** The preview can follow links to other files, so name what it shows now. */
+  private currentFile(): string {
+    const view = this.leaf?.view;
+    return (view instanceof FileView ? view.file?.path : null) ?? (this.target.kind === 'file' ? this.target.file.path : '');
   }
 
   private async copyAddress(): Promise<void> {
@@ -271,7 +306,7 @@ export class Preview {
   }
 
   keep(): void {
-    if (this.closed || this.closing || !this.leaf || !this.guest) return;
+    if (this.closed || this.closing || !this.leaf || !this.shown) return;
     this.options.userAction();
     this.kept = true;
     const leaf = this.leaf;
@@ -285,12 +320,12 @@ export class Preview {
     if (this.closed) return Promise.resolve(!this.kept);
     if (userAction) this.options.userAction();
     if (this.closing) return this.closing;
-    if (!this.guest) { this.finishClose(); return Promise.resolve(true); }
+    if (!this.shown) { this.finishClose(); return Promise.resolve(true); }
     this.closeOptions(false);
     if (this.leaf) this.options.cancelPicker(this.leaf);
     this.motion?.beginClose();
     this.setClosing(true);
-    const closing = this.checkClose().finally(() => {
+    const closing = (this.guest ? this.checkClose() : this.closeFile()).finally(() => {
       if (this.closing === closing) this.closing = null;
       if (!this.closed) this.setClosing(false);
     });
@@ -313,6 +348,13 @@ export class Preview {
     }
     // Without a captured frame, dispose an allowed blank probe immediately.
     if (!this.closed && (covered || result !== 'allowed')) await this.motion?.close();
+    if (!this.closed) this.finishClose();
+    return !this.kept;
+  }
+
+  /** Notes and PDFs need no close check; core saves an edited note when its leaf closes. */
+  private async closeFile(): Promise<boolean> {
+    await this.motion?.close();
     if (!this.closed) this.finishClose();
     return !this.kept;
   }
@@ -389,7 +431,8 @@ export class Preview {
     leafElement(this.source).classList.toggle('peek-source', this.sourceHadVisibilityClass);
     const el = this.leaf ? leafElement(this.leaf) : null;
     if (el?.matches(':popover-open')) el.hidePopover();
-    el?.classList.remove('peek-surface');
+    el?.classList.remove('peek-surface', 'peek-file', 'peek-pending');
+    if (el) delete el.dataset.peekMotion;
     for (const attr of ['popover', 'role', 'aria-label']) el?.removeAttribute(attr);
     this.chrome?.remove(); this.status?.remove(); this.releaseHeader?.();
     this.releaseLeafPresentation?.();

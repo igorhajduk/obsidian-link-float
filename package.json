@@ -1,8 +1,8 @@
 {
   "name": "obsidian-link-float",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
-  "description": "Open web links in a temporary overlay with modifier-click.",
+  "description": "Open web links, notes, and PDFs in a temporary overlay with modifier-click.",
   "scripts": {
     "build": "npm run typecheck && node esbuild.config.mjs",
     "check": "npm run lint && npm test && npm run build",
@@ -22,7 +22,8 @@
     "lint": "eslint src manifest.json LICENSE --max-warnings=0",
     "package": "npm run check && node scripts/package.mjs",
     "release:notes": "node scripts/release-notes.mjs",
-    "lab:test-hiding": "node scripts/hiding-test.mjs"
+    "lab:test-hiding": "node scripts/hiding-test.mjs",
+    "lab:test-notes": "node scripts/notes-test.mjs"
   },
   "devDependencies": {
     "@codemirror/state": "6.5.0",

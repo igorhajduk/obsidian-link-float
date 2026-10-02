@@ -1,5 +1,5 @@
-import type { App, Editor, EditorPosition, KeymapContext, Scope, WorkspaceLeaf } from 'obsidian';
-import { webUrl } from './links';
+import type { App, Editor, EditorPosition, HoverParent, KeymapContext, Scope, WorkspaceLeaf } from 'obsidian';
+import { webUrl, type NoteLink } from './links';
 
 // Private Obsidian integration is contained here. Verified on desktop 1.13.7.
 export interface Guest extends HTMLElement {
@@ -41,11 +41,26 @@ export function guestFor(leaf: WorkspaceLeaf): Guest | null {
   return guest && typeof guest.getWebContentsId === 'function' ? guest : null;
 }
 
-export function editorLink(editor: Editor, position: EditorPosition): string | null {
+/** Core reports internal link text without its alias and with its path decoded. */
+export function editorLink(editor: Editor, position: EditorPosition): NoteLink | null {
   const token = (editor as Editor & {
     getClickableTokenAt?: (position: EditorPosition) => { type: string; text: string } | null;
   }).getClickableTokenAt?.(position);
-  return token?.type === 'external-link' ? webUrl(token.text) : null;
+  if (token?.type === 'internal-link') return { kind: 'note', linktext: token.text };
+  const url = token?.type === 'external-link' ? webUrl(token.text) : null;
+  return url ? { kind: 'web', url } : null;
+}
+
+/**
+ * A core page preview stays up after a link click that does not navigate. Close it as navigation
+ * would, whichever part of the view owns it.
+ */
+export function dismissPagePreviews(leaf: WorkspaceLeaf): void {
+  const view = leaf.view as WorkspaceLeaf['view'] & Partial<Record<'previewMode' | 'editMode' | 'currentMode', Partial<HoverParent>>> & Partial<HoverParent>;
+  for (const parent of [leaf, view, view.previewMode, view.editMode, view.currentMode]) {
+    const popover = parent?.hoverPopover as { hide?: () => void } | null | undefined;
+    if (typeof popover?.hide === 'function') popover.hide();
+  }
 }
 
 export function hideTabHeader(leaf: WorkspaceLeaf): () => void {
@@ -93,6 +108,22 @@ export function preparePreviewLeaf(leaf: WorkspaceLeaf): () => void {
     el.classList.toggle('workspace-leaf', hadLeafClass);
     header?.classList.toggle('view-header-always-show', hadHeaderClass);
   };
+}
+
+/** Resolve once the view's scroll position has stopped changing, so it is measured before the opening transform. */
+export function scrollSettled(leaf: WorkspaceLeaf): Promise<void> {
+  const view = leaf.view.containerEl.ownerDocument.defaultView!;
+  const scroller = () => leaf.view.containerEl.querySelector<HTMLElement>('.cm-scroller, .markdown-preview-view, .pdf-viewer-container');
+  return new Promise(resolve => {
+    let last = -1, stable = 0, frames = 0;
+    const step = () => {
+      const top = scroller()?.scrollTop ?? 0;
+      stable = top === last ? stable + 1 : 0;
+      last = top;
+      if (stable >= 2 || ++frames >= 12) resolve(); else view.requestAnimationFrame(step);
+    };
+    view.requestAnimationFrame(step);
+  });
 }
 
 export function leafElement(leaf: WorkspaceLeaf): HTMLElement {
